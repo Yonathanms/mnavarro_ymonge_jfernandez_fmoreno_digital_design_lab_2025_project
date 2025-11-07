@@ -1,0 +1,42 @@
+# ================================
+# QUARTUS / INTEL FPGA
+# ================================
+db/
+incremental_db/
+output_files/
+greybox_tmp/
+simulation/
+qdb/
+.qmsg
+.jdi
+*.qws
+*.rpt
+*.qdf
+*.smsg
+*.summary
+*.eqn
+*.chg
+*.cdf
+*.srf
+*.ttf
+*.fsf
+*.pin
+*.pof
+*.sof
+*.qarlog
+*.qip.bak
+*.qdf.bak
+*.qpf.bak
+*.qsf.bak
+
+# Más temporales
+*.log
+*.tmp
+*.bak
+
+# ================================
+# OTHER
+# ================================
+*.swp
+.DS_Store
+Thumbs.db
