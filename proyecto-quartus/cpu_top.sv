@@ -1,11 +1,12 @@
 // =====================================================================
 // cpu_top.sv
-// ARMv4 subset — Single-cycle CPU
+// ARMv4 subset — Single-cycle CPU mínimo
 // =====================================================================
 
 module cpu_top (
-    input  logic clk,
-    input  logic rst
+    input  logic        clk,
+    input  logic        rst,
+    output logic [31:0] debug_pc      // para debug en FPGA
 );
 
     // ================================================================
@@ -26,14 +27,15 @@ module cpu_top (
         .dout (instr)
     );
 
-
     // ================================================================
     // ========================   DECODE   =============================
     // ================================================================
 
-    logic [3:0] cond, opcode, Rn, Rd, Rm;
+    logic [3:0] cond;
     logic [1:0] instr_type;
+    logic [3:0] opcode;
     logic       S;
+    logic [3:0] Rn, Rd, Rm;
     logic [11:0] operand2;
 
     decoder U_DEC (
@@ -47,7 +49,6 @@ module cpu_top (
         .Rm         (Rm),
         .operand2   (operand2)
     );
-
 
     // ================================================================
     // =====================   REGISTER FILE   ========================
@@ -67,66 +68,21 @@ module cpu_top (
         .rd2 (rf_rd2)
     );
 
-
     // ================================================================
-    // ======================   CPSR FLAGS   ==========================
+    // ======================   CPSR / COND   =========================
     // ================================================================
 
     logic N, Z, C, V;
+    logic N_next, Z_next, C_next, V_next;
     logic FlagWrite, cond_ok;
 
     cond_check U_COND (
-        .cond   (cond),
-        .N      (N),
-        .Z      (Z),
-        .C      (C),
-        .V      (V),
-        .cond_ok(cond_ok)
-    );
-
-
-    // ================================================================
-    // =======================   SHIFTER   ============================
-    // ================================================================
-
-    logic [31:0] op2_shifted;
-    logic [4:0]  shamt;
-    logic [1:0]  shkind;
-
-    assign shamt  = operand2[11:7];
-    assign shkind = operand2[6:5];    // 00=LSL, 01=LSR
-
-    barrel_shifter U_SH (
-        .in    (rf_rd2),
-        .shamt (shamt),
-        .kind  (shkind),
-        .out   (op2_shifted)
-    );
-
-
-    // ================================================================
-    // ==========================   ALU   =============================
-    // ================================================================
-
-    logic [31:0] alu_a, alu_b, alu_y;
-    logic        ALUSrcB;
-
-    logic [31:0] imm12_zext;
-    logic        N_next, Z_next, C_next, V_next;
-
-    assign imm12_zext = {20'b0, operand2[11:0]};
-    assign alu_a      = rf_rd1;
-    assign alu_b      = (ALUSrcB) ? imm12_zext : op2_shifted;
-
-    alu U_ALU (
-        .a      (alu_a),
-        .b      (alu_b),
-        .alu_op (opcode),
-        .y      (alu_y),
-        .N      (N_next),
-        .Z      (Z_next),
-        .C      (C_next),
-        .V      (V_next)
+        .cond    (cond),
+        .N       (N),
+        .Z       (Z),
+        .C       (C),
+        .V       (V),
+        .cond_ok (cond_ok)
     );
 
     cpsr_flags U_CPSR (
@@ -143,6 +99,51 @@ module cpu_top (
         .V         (V)
     );
 
+    // ================================================================
+    // =======================   SHIFTER   ============================
+    // ================================================================
+
+    logic [31:0] op2_shifted;
+    logic [4:0]  shamt;
+    logic [1:0]  shkind;
+
+    assign shamt  = operand2[11:7];
+    assign shkind = operand2[6:5];     // 00=LSL, 01=LSR
+
+    barrel_shifter U_SH (
+        .in    (rf_rd2),
+        .shamt (shamt),
+        .kind  (shkind),
+        .out   (op2_shifted)
+    );
+
+    // ================================================================
+    // ==========================   ALU   =============================
+    // ================================================================
+
+    logic [31:0] alu_a, alu_b, alu_y;
+    logic        ALUSrcB;
+    logic [31:0] imm12_zext;
+    logic [3:0]  alu_ctrl;
+
+    assign imm12_zext = {20'b0, operand2[11:0]};
+    assign alu_a      = rf_rd1;
+    assign alu_b      = (ALUSrcB) ? imm12_zext : op2_shifted;
+
+    // Para LDR/STR (instr_type=1) usamos siempre ADD
+    // Para DataProc usamos opcode directo.
+    assign alu_ctrl = (instr_type == 2'd1) ? 4'b0100 : opcode;
+
+    alu U_ALU (
+        .a      (alu_a),
+        .b      (alu_b),
+        .alu_op (alu_ctrl),
+        .y      (alu_y),
+        .N      (N_next),
+        .Z      (Z_next),
+        .C      (C_next),
+        .V      (V_next)
+    );
 
     // ================================================================
     // ==========================   DMEM   ============================
@@ -151,42 +152,42 @@ module cpu_top (
     logic [31:0] dmem_out;
     logic        MemWrite, MemToReg;
 
-    // STORE DATA = rf_rd2
     data_mem U_DMEM (
         .clk  (clk),
         .we   (MemWrite),
         .addr (alu_y),
-        .din  (rf_rd2),
+        .din  (rf_rd2),     // STORE usa rf_rd2
         .dout (dmem_out)
     );
-
 
     // ================================================================
     // =====================   CONTROL UNIT   =========================
     // ================================================================
 
     logic Branch;
+    logic ALUSrcB_int;
 
     control_unit U_CTRL (
-        .cond_ok   (cond_ok),
-        .instr_type(instr_type),
-        .opcode    (opcode),
-        .S         (S),
-        .RegWrite  (RegWrite),
-        .MemWrite  (MemWrite),
-        .MemToReg  (MemToReg),
-        .Branch    (Branch),
-        .FlagWrite (FlagWrite),
-        .ALUSrcB   (ALUSrcB)
+        .cond_ok    (cond_ok),
+        .instr_type (instr_type),
+        .opcode     (opcode),
+        .S          (S),
+        .RegWrite   (RegWrite),
+        .MemWrite   (MemWrite),
+        .MemToReg   (MemToReg),
+        .Branch     (Branch),
+        .FlagWrite  (FlagWrite),
+        .ALUSrcB    (ALUSrcB_int)
     );
 
+    // selector ALUSrcB desde control
+    assign ALUSrcB = ALUSrcB_int;
 
     // ================================================================
     // =======================   WRITE-BACK   =========================
     // ================================================================
 
     assign rf_wd = (MemToReg) ? dmem_out : alu_y;
-
 
     // ================================================================
     // ======================   NEXT PC LOGIC   =======================
@@ -195,9 +196,17 @@ module cpu_top (
     logic [31:0] pc_plus4, branch_offs;
 
     assign pc_plus4    = pc + 32'd4;
-    assign branch_offs = {{8{instr[23]}}, instr[23:0], 2'b00};  // sign-extend + <<2
 
-    assign pc_next = (Branch) ? (pc_plus4 + branch_offs) :
-                                pc_plus4;
+    // Sign-extend correcto de imm24 << 2
+    assign branch_offs = {{6{instr[23]}}, instr[23:0], 2'b00};
+
+    assign pc_next = (Branch) ? (pc_plus4 + branch_offs)
+                              : pc_plus4;
+
+    // ================================================================
+    // =========================   DEBUG   =============================
+    // ================================================================
+
+    assign debug_pc = pc;
 
 endmodule
