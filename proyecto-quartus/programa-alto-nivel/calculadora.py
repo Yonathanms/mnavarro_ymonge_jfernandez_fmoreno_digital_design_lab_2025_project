@@ -1,203 +1,195 @@
-"""
-arm_bits_calc.py
-----------------
-Calculadora en alto nivel que opera sobre operandos BINARIOS (dos complementos)
-con ancho parametrizable (WIDTH). Devuelve resultado en:
-- entero con signo (decimal),
-- entero sin signo (decimal),
-- binario (zero-padded a WIDTH),
-y las banderas Z, N, C, V.
 
-Operaciones soportadas: +, -, *, /, &, |, ^
-
-USO BÁSICO (importado):
-    from arm_bits_calc import eval_bits
-
-    r = eval_bits("00000101", "+", "00000011", width=8)
-    # r es un dict con: res_signed, res_unsigned, res_bin, flags{Z,N,C,V}
-
-EJECUCIÓN DIRECTA (ejemplos al final del archivo en __main__).
-"""
+# calculadora_arm.py
+# ------------------------------------------------------------
+# Demo mínima:
+# - Ancho fijo de 32 bits (dos complementos).
+# - Entrada guiada con PLANTILLA: "0000 0000 ... 0000"
+# - Simula UART: imprime TX/RX después de cada entrada.
+# - Carga registros básicos (R1=A, R2=B), ejecuta ALU y muestra Rdest.
+# - SIEMPRE imprime banderas (Z N C V).
+#
+# Operaciones: add, sub, mul, div, and, or, xor
+#
+# Uso:
+#   python calculadora_arm.py
+#   (seguir las indicaciones en consola)
 
 from typing import Tuple, Dict
 
-# -------------------------
-# Utilidades de ancho y máscaras
-# -------------------------
-def _mask(width: int) -> int:
-    """Máscara de width bits: 0..(2^width - 1)."""
-    if not (1 <= width <= 64):
-        raise ValueError("El ancho debe estar entre 1 y 64 bits.")
-    return (1 << width) - 1
+WIDTH = 32
+OPS = {"add", "sub", "mul", "div", "and", "or", "xor"}
 
-def _sign_bit(width: int) -> int:
-    """Bit de signo para dos complementos (bit más significativo)."""
-    return 1 << (width - 1)
+# ---------------- Utilidades de 32 bits ----------------
+def _mask() -> int:
+    return (1 << WIDTH) - 1
 
-# -------------------------
-# Conversión de binario <-> enteros
-# -------------------------
-def _to_unsigned(bits: str, width: int) -> int:
-    """
-    Convierte 'bits' (solo 0/1) a entero sin signo, rellenando a la izquierda
-    si es más corto que width. Error si excede el ancho o hay caracteres inválidos.
-    """
-    if any(ch not in "01" for ch in bits):
-        raise ValueError("Los bits deben contener solo caracteres '0' o '1'.")
-    if len(bits) > width:
-        raise ValueError("Los bits exceden el ancho especificado.")
-    return int(bits.zfill(width), 2)
+def _sign_bit() -> int:
+    return 1 << (WIDTH - 1)
 
-def _to_signed(u: int, width: int) -> int:
-    """
-    Interpreta 'u' como entero con signo en dos complementos de 'width' bits.
-    """
-    m = _mask(width)
-    sbit = _sign_bit(width)
-    u &= m
-    return u - (1 << width) if (u & sbit) else u
+def _to_signed(u: int) -> int:
+    u &= _mask()
+    return u - (1 << WIDTH) if (u & _sign_bit()) else u
 
-def _bin_str(u: int, width: int) -> str:
-    """Entero a binario zero-padded a 'width' bits."""
-    return format(u & _mask(width), f"0{width}b")
+def _bin_str(u: int) -> str:
+    return format(u & _mask(), f"0{WIDTH}b")
 
-# -------------------------
-# Cálculo de banderas
-# -------------------------
-def _flags_add(a_u: int, b_u: int, res_u: int, width: int) -> Tuple[int,int,int,int]:
-    """
-    Banderas Z, N, C, V para suma con dos complementos.
-    C: carry sin signo
-    V: overflow con signo
-    """
-    m, sbit = _mask(width), _sign_bit(width)
-    Z = int((res_u & m) == 0)
-    N = int((res_u & sbit) != 0)
-    C = int((a_u & m) + (b_u & m) > m)
+def _group_bits(s: str) -> str:
+    # Agrupa en nibbles: "0000 0000 ... 0000"
+    return " ".join(s[i:i+4] for i in range(0, len(s), 4))
 
-    A = _to_signed(a_u, width)
-    B = _to_signed(b_u, width)
-    R = _to_signed(res_u, width)
+def _normalize_bits_input(user_text: str, default_bits32: str) -> str:
+    """
+    Acepta:
+      - Cadena vacía: usa la plantilla por defecto (32 ceros)
+      - Cadena corta (1 hasta 31 bits): se rellena a la izquierda hasta 32 con 0s si ingresa un 101 por ejemplo
+      - Solo '0' y '1'
+    Devuelve SIEMPRE 32 bits sin espacios.
+    """
+    s = (user_text or "").strip()
+    if s == "":
+        s = default_bits32
+    s = s.replace(" ", "").replace("_", "")
+    if any(ch not in "01" for ch in s):
+        raise ValueError("Solo se aceptan '0' y '1' (se permiten espacios/guiones bajos para separar grupos).")
+    if len(s) > WIDTH:
+        raise ValueError(f"Se recibieron más de {WIDTH} bits.")
+    return s.zfill(WIDTH)
+
+# ---------------- Banderas (ALU) ----------------
+def _flags_add(a_u: int, b_u: int, res_u: int) -> Tuple[int,int,int,int]:
+    Z = int((res_u & _mask()) == 0)
+    N = int((res_u & _sign_bit()) != 0)
+    C = int((a_u & _mask()) + (b_u & _mask()) > _mask())
+    A = _to_signed(a_u); B = _to_signed(b_u); R = _to_signed(res_u)
     V = int((A >= 0 and B >= 0 and R < 0) or (A < 0 and B < 0 and R >= 0))
     return Z, N, C, V
 
-def _flags_sub(a_u: int, b_u: int, res_u: int, width: int) -> Tuple[int,int,int,int]:
-    """
-    Banderas Z, N, C, V para resta (a - b).
-    C: borrow (1 si hubo préstamo) -> aquí como a_u < b_u en sin signo.
-    V: overflow con signo
-    """
-    m, sbit = _mask(width), _sign_bit(width)
-    Z = int((res_u & m) == 0)
-    N = int((res_u & sbit) != 0)
-    C = int((a_u & m) < (b_u & m))  # borrow
-
-    A = _to_signed(a_u, width)
-    B = _to_signed(b_u, width)
-    R = _to_signed(res_u, width)
+def _flags_sub(a_u: int, b_u: int, res_u: int) -> Tuple[int,int,int,int]:
+    Z = int((res_u & _mask()) == 0)
+    N = int((res_u & _sign_bit()) != 0)
+    C = int((a_u & _mask()) < (b_u & _mask()))   # borrow
+    A = _to_signed(a_u); B = _to_signed(b_u); R = _to_signed(res_u)
     V = int((A >= 0 and B < 0 and R < 0) or (A < 0 and B >= 0 and R >= 0))
     return Z, N, C, V
 
-def _flags_mul(a_u: int, b_u: int, res_u: int, width: int) -> Tuple[int,int,int,int]:
-    """
-    Banderas para multiplicación truncada a 'width' bits:
-    Z y N según resultado truncado; C=0; V=1 si hubo derrame (bits fuera de width).
-    """
-    m, sbit = _mask(width), _sign_bit(width)
-    Z = int((res_u & m) == 0)
-    N = int((res_u & sbit) != 0)
-    full = (a_u & m) * (b_u & m)
-    V = int(full >> width != 0)
+def _flags_mul(a_u: int, b_u: int, res_u: int) -> Tuple[int,int,int,int]:
+    Z = int((res_u & _mask()) == 0)
+    N = int((res_u & _sign_bit()) != 0)
+    full = (a_u & _mask()) * (b_u & _mask())
+    V = int(full >> WIDTH != 0)   # hubo derrame fuera de 32 bits
     C = 0
     return Z, N, C, V
 
-def _flags_logic(res_u: int, width: int) -> Tuple[int,int,int,int]:
-    """Banderas para &, |, ^ : Z y N; C=0; V=0."""
-    m, sbit = _mask(width), _sign_bit(width)
-    Z = int((res_u & m) == 0)
-    N = int((res_u & sbit) != 0)
-    C, V = 0, 0
-    return Z, N, C, V
+def _flags_logic(res_u: int) -> Tuple[int,int,int,int]:
+    Z = int((res_u & _mask()) == 0)
+    N = int((res_u & _sign_bit()) != 0)
+    return Z, N, 0, 0
 
-# -------------------------
-# Evaluador principal
-# -------------------------
-def eval_bits(a_bits: str, op: str, b_bits: str, *, width: int = 32) -> Dict[str, object]:
+# ---------------- ALU pura ----------------
+def eval_bits(a_bits32: str, op: str, b_bits32: str) -> Dict[str, object]:
     """
-    Evalúa la operación entre dos operandos binarios de ancho 'width'.
-    Devuelve un diccionario con:
-    - res_signed: resultado como entero con signo.
-    - res_unsigned: resultado como entero sin signo.
-    - res_bin: resultado en binario (zero-padded).
-    - flags: banderas Z, N, C, V.
+    Evalúa a_bits <op> b_bits (32 bits, dos complementos).
+    Retorna:
+      - res_signed (int), res_unsigned (int), res_bin (str),
+      - flags dict: {'Z','N','C','V'}
     """
-    a_u = _to_unsigned(a_bits, width)
-    b_u = _to_unsigned(b_bits, width)
+    if op not in OPS:
+        raise ValueError("Operación inválida. Use: add, sub, mul, div, and, or, xor")
+    a_u = int(a_bits32, 2)
+    b_u = int(b_bits32, 2)
 
-    if op == "+":
-        res_u = a_u + b_u
-        flags = _flags_add(a_u, b_u, res_u, width)
-    elif op == "-":
-        res_u = a_u - b_u
-        flags = _flags_sub(a_u, b_u, res_u, width)
-    elif op == "*":
-        res_u = a_u * b_u
-        flags = _flags_mul(a_u, b_u, res_u, width)
-    elif op == "&":
-        res_u = a_u & b_u
-        flags = _flags_logic(res_u, width)
-    elif op == "|":
-        res_u = a_u | b_u
-        flags = _flags_logic(res_u, width)
-    elif op == "^":
-        res_u = a_u ^ b_u
-        flags = _flags_logic(res_u, width)
-    else:
-        raise ValueError(f"Operación no soportada: {op}")
+    if op == "add":
+        res_u = (a_u + b_u) & _mask()
+        Z,N,C,V = _flags_add(a_u, b_u, res_u)
+    elif op == "sub":
+        res_u = (a_u - b_u) & _mask()
+        Z,N,C,V = _flags_sub(a_u, b_u, res_u)
+    elif op == "mul":
+        res_u = (a_u * b_u) & _mask()
+        Z,N,C,V = _flags_mul(a_u, b_u, res_u)
+    elif op == "div":
+        A = _to_signed(a_u); B = _to_signed(b_u)
+        if B == 0:
+            raise ZeroDivisionError("División por cero")
+        res_s = int(A / B)  # trunc hacia 0 (C/ARM)
+        res_u = res_s & _mask()
+        Z,N,C,V = int(res_u == 0), int(res_u & _sign_bit() != 0), 0, 0
+    elif op == "and":
+        res_u = (a_u & b_u) & _mask()
+        Z,N,C,V = _flags_logic(res_u)
+    elif op == "or":
+        res_u = (a_u | b_u) & _mask()
+        Z,N,C,V = _flags_logic(res_u)
+    elif op == "xor":
+        res_u = (a_u ^ b_u) & _mask()
+        Z,N,C,V = _flags_logic(res_u)
 
+    res_s = _to_signed(res_u)
     return {
-        "res_signed": _to_signed(res_u, width),
-        "res_unsigned": res_u & _mask(width),
-        "res_bin": _bin_str(res_u, width),
-        "flags": {
-            "Z": flags[0],
-            "N": flags[1],
-            "C": flags[2],
-            "V": flags[3],
-        },
+        "res_signed":   res_s,
+        "res_unsigned": res_u,
+        "res_bin":      _bin_str(res_u),
+        "flags":        {"Z": Z, "N": N, "C": C, "V": V},
     }
 
-# -------------------------
-# Simulación de periféricos
-# -------------------------
-def simulate_keyboard_input() -> str:
-    """Simula la entrada de datos desde un teclado."""
-    return input("Ingrese un número binario: ")
+# ---------------- UART simulado + REGs + I/O ----------------
+def _uart_tx(label: str, payload_bits32: str):
+    print(f"[UART] TX {label}: { _group_bits(payload_bits32) }")
 
-def simulate_uart_output(data: str):
-    """Simula el envío de datos a través de UART."""
-    print(f"Enviando datos por UART: {data}")
+def _uart_rx(label: str):
+    print(f"[UART] RX {label}: recibido por CPU")
 
-# -------------------------
-# Ejecución directa
-# -------------------------
-if __name__ == "__main__":
-    print("Simulación de calculadora ARM.")
-    a = simulate_keyboard_input()
-    b = simulate_keyboard_input()
-    op = input("Ingrese la operación (+, -, *, &, |, ^): ")
+def _show_reg(name: str, u: int):
+    print(f"[REG] {name} = { _group_bits(_bin_str(u)) } | signed={_to_signed(u)}  unsigned={u}")
 
+def _template_bits32() -> str:
+    return _group_bits("0"*WIDTH)  # "0000 0000 ... 0000"
+
+def _read_operand(label: str) -> str:
+    tpl = _template_bits32()
+    print(f"Ingrese {label} = {tpl}")
+    user = input(f"{label} (cambie 0→1 donde necesite; ENTER para usar la plantilla tal cual): ")
+    return _normalize_bits_input(user, "0"*WIDTH)
+
+# ---------------- Programa principal ----------------
+def main():
+    print("=== DEMO UART + REG + ALU — 32 bits (dos complementos) ===")
+    print("Sugerencia: para encender el bit más significativo (MSB), cambie solo el primer 0 de la plantilla A por 1.")
     try:
-        result = eval_bits(a, op, b, width=8)
-        print("Resultado:")
-        print(f"  Entero con signo: {result['res_signed']}")
-        print(f"  Entero sin signo: {result['res_unsigned']}")
-        print(f"  Binario: {result['res_bin']}")
-        print("  Banderas:")
-        for flag, value in result['flags'].items():
-            print(f"    {flag}: {value}")
+        a_bits32 = _read_operand("A")
+        _uart_tx("A", a_bits32); _uart_rx("A")
 
-        simulate_uart_output(result['res_bin'])
-    except ValueError as e:
-        print(f"Error: {e}")
+        b_bits32 = _read_operand("B")
+        _uart_tx("B", b_bits32); _uart_rx("B")
 
+        op = input("Operación [add, sub, mul, div, and, or, xor]: ").strip().lower()
+
+        # Cargar "registros" R1, R2 (enteros 32-bit)
+        R1 = int(a_bits32, 2)
+        R2 = int(b_bits32, 2)
+        _show_reg("R1", R1)
+        _show_reg("R2", R2)
+
+        # ALU + resultado
+        try:
+            out = eval_bits(a_bits32, op, b_bits32)
+            Rdest = int(out["res_unsigned"])
+            print("[ALU] Operación ejecutada.")
+            _show_reg("Rdest", Rdest)
+
+            # Banderas SIEMPRE
+            Z,N,C,V = out["flags"]["Z"], out["flags"]["N"], out["flags"]["C"], out["flags"]["V"]
+            print(f"[FLAGS] Z={Z} N={N} C={C} V={V}")
+
+            # Salida clara
+            print(f">>> OUT dec(signed)={out['res_signed']} | dec(unsigned)={out['res_unsigned']} | bin={_group_bits(out['res_bin'])}")
+
+        except ZeroDivisionError as e:
+            print("[ALU] EXCEPCIÓN:", e)
+            print("[FLAGS] Z=0 N=0 C=0 V=0 (no actualizadas por excepción)")
+
+    except Exception as e:
+        print("ERROR:", e)
+
+if __name__ == "__main__":
+    main()
