@@ -1,19 +1,5 @@
--- Copyright (C) 2020  Intel Corporation. All rights reserved.
--- Your use of Intel Corporation's design tools, logic functions 
--- and other software and tools, and any partner logic 
--- functions, and any output files from any of the foregoing 
--- (including device programming or simulation files), and any 
--- associated documentation or information are expressly subject 
--- to the terms and conditions of the Intel Program License 
--- Subscription Agreement, the Intel Quartus Prime License Agreement,
--- the Intel FPGA IP License Agreement, or other applicable license
--- agreement, including, without limitation, that your use is for
--- the sole purpose of programming logic devices manufactured by
--- Intel and sold by Intel or its authorized distributors.  Please
--- refer to the applicable agreement for further details, at
--- https://fpgasoftware.intel.com/eula.
-
--- Quartus Prime generated Memory Initialization File (.mif)
+-- Datos de inicializacion para ROM - FASE 0
+-- Programa que hace parpadear LED[4] alternando entre bit[4]=0 y bit[4]=1
 
 WIDTH=32;
 DEPTH=1024;
@@ -22,9 +8,31 @@ ADDRESS_RADIX=UNS;
 DATA_RADIX=HEX;
 
 CONTENT BEGIN
-    0    : 00000000;
-    1    : 00000022;
-    2    : 00000000;
-    3    : 00000034;
-    [4..1023] : 00000000;
+    -- Direcciones 0-3: Instrucciones de prueba (bit[4] = 0)
+    0    : E0801000;  -- ADD R1, R0, R0
+    1    : E0811001;  -- ADD R1, R1, R1
+    2    : E5801000;  -- STR R1, [R0, #0]
+    3    : E5902000;  -- LDR R2, [R0, #0]
+
+    -- Direccion 4: Salto a direccion 16 (para cambiar bit[4] a 1)
+    -- pc_next = pc_plus4 + offset = 20 + offset = 64
+    -- offset = 44 = 0x2C
+    4    : EA00002C;  -- B +0x2C (salta a direccion 16)
+
+    -- Relleno hasta direccion 16
+    [5..15] : 00000000;
+
+    -- Direcciones 16-19: Instrucciones similares (bit[4] = 1)
+    16   : E0801000;  -- ADD R1, R0, R0
+    17   : E0811001;  -- ADD R1, R1, R1
+    18   : E5801000;  -- STR R1, [R0, #0]
+    19   : E5902000;  -- LDR R2, [R0, #0]
+
+    -- Direccion 20: Salto de vuelta a direccion 0
+    -- pc_next = pc_plus4 + offset = 84 + offset = 0
+    -- offset = -84 = 0xFFFFAC (complemento a 2)
+    20   : EAFFFFAC;  -- B -0x54 (salta de vuelta a direccion 0)
+
+    -- Relleno final
+    [21..1023] : 00000000;
 END;

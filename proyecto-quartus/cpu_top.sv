@@ -18,10 +18,17 @@ module cpu_top (
         .pc      (pc)
     );
 
-    instr_mem U_ROM (
-        .addr (pc),
-        .dout (instr)
+    // Sistema de memoria centralizado: lee instrucciones desde ROM (región 0x0)
+    logic [31:0] mem_read_data;
+    mem_system U_MEM (
+        .clk        (clk),
+        .addr       (pc),                    // PC se usa como dirección de lectura
+        .write_data (32'h0000_0000),         // No escribe en fetch
+        .MemWrite   (1'b0),                  // No escribe en fetch
+        .read_data  (mem_read_data)
     );
+
+    assign instr = mem_read_data;
 
     // decode
     logic [3:0] cond;
@@ -85,15 +92,15 @@ module cpu_top (
         .C         (C),
         .V         (V)
     );
-	 
-	 
+
+
     // shifter
     logic [31:0] op2_shifted;
     logic [4:0]  shamt;
     logic [1:0]  shkind;
 
     assign shamt  = operand2[11:7];
-    assign shkind = operand2[6:5];     
+    assign shkind = operand2[6:5];
     barrel_shifter U_SH (
         .in    (rf_rd2),
         .shamt (shamt),
@@ -101,7 +108,7 @@ module cpu_top (
         .out   (op2_shifted)
     );
 
-	 
+
     // alu
     logic [31:0] alu_a, alu_b, alu_y;
     logic        ALUSrcB;
@@ -128,16 +135,17 @@ module cpu_top (
     );
 
 
-    // dmem
+    // dmem: ahora el CPU escribe/lee a través de mem_system
     logic [31:0] dmem_out;
     logic        MemWrite, MemToReg;
 
-    data_mem U_DMEM (
-        .clk  (clk),
-        .we   (MemWrite),
-        .addr (alu_y),
-        .din  (rf_rd2),     // STORE usa rf_rd2
-        .dout (dmem_out)
+    // El CPU escribe/lee datos en dirección calculada por ALU a través de mem_system
+    mem_system U_MEM_DATA (
+        .clk        (clk),
+        .addr       (alu_y),                 // Dirección de datos calculada por ALU
+        .write_data (rf_rd2),                // Datos a escribir (desde rf_rd2)
+        .MemWrite   (MemWrite),              // Señal de escritura
+        .read_data  (dmem_out)               // Datos leídos
     );
 
 
@@ -161,12 +169,12 @@ module cpu_top (
     // selector ALUSrcB desde control
     assign ALUSrcB = ALUSrcB_int;
 
-	 
+
     // write back
 
     assign rf_wd = (MemToReg) ? dmem_out : alu_y;
 
-	 
+
     // next pc logic
     logic [31:0] pc_plus4, branch_offs;
 
@@ -206,4 +214,3 @@ module cpu_top (
     assign debug_pc = pc;
 
 endmodule
-
