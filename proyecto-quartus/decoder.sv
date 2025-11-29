@@ -11,7 +11,8 @@ module decoder (
     output logic [3:0]  Rn,           // reg base / opA
     output logic [3:0]  Rd,           // destino (DataProc/LDR)
     output logic [3:0]  Rm,           // opB registro (DataProc)
-    output logic [11:0] operand2      // shift spec (DataProc) o imm12 (LS)
+    output logic [11:0] operand2,     // shift spec (DataProc) o imm12 (LS)
+    output logic        op2_is_imm    // bit I para DataProc
 );
 
     assign cond     = instr[31:28];
@@ -21,6 +22,7 @@ module decoder (
     assign Rd       = instr[15:12];
     assign Rm       = instr[3:0];
     assign operand2 = instr[11:0];
+    assign op2_is_imm = instr[25];
 
     always_comb begin
         if      (instr[27:26] == 2'b00)  instr_type = 2'd0;   // DataProc

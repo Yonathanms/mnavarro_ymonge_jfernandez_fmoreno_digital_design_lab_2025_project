@@ -10,6 +10,7 @@ module cpu_top (
 
     // fetch
     logic [31:0] pc, pc_next, instr;
+    logic [31:0] pc_plus4, pc_plus8;
 
     pc_reg U_PC (
         .clk     (clk),
@@ -28,7 +29,9 @@ module cpu_top (
         .read_data  (mem_read_data)
     );
 
-    assign instr = mem_read_data;
+    assign instr    = mem_read_data;
+    assign pc_plus4 = pc + 32'd4;
+    assign pc_plus8 = pc + 32'd8;
 
     // decode
     logic [3:0] cond;
@@ -37,6 +40,7 @@ module cpu_top (
     logic       S;
     logic [3:0] Rn, Rd, Rm;
     logic [11:0] operand2;
+    logic        op2_is_imm;
 
     decoder U_DEC (
         .instr      (instr),
@@ -47,23 +51,30 @@ module cpu_top (
         .Rn         (Rn),
         .Rd         (Rd),
         .Rm         (Rm),
-        .operand2   (operand2)
+        .operand2   (operand2),
+        .op2_is_imm (op2_is_imm)
     );
 
     // register file
-    logic [31:0] rf_rd1, rf_rd2, rf_wd;
-    logic        RegWrite;
+    logic [31:0] rf_rd1_raw, rf_rd2_raw;
+    logic [31:0] rf_rd1, rf_rd2, rf_wd, rf_wd_final;
+    logic        RegWrite, rf_we;
+    logic [3:0]  rf_wa;
 
     regfile U_RF (
         .clk (clk),
-        .we  (RegWrite),
+        .rst (rst),
+        .we  (rf_we),
         .ra1 (Rn),
         .ra2 (Rm),
-        .wa  (Rd),
-        .wd  (rf_wd),
-        .rd1 (rf_rd1),
-        .rd2 (rf_rd2)
+        .wa  (rf_wa),
+        .wd  (rf_wd_final),
+        .rd1 (rf_rd1_raw),
+        .rd2 (rf_rd2_raw)
     );
+
+    assign rf_rd1 = (Rn == 4'd15) ? pc_plus8 : rf_rd1_raw;
+    assign rf_rd2 = (Rm == 4'd15) ? pc_plus8 : rf_rd2_raw;
 
     // cpsr / cond
 
@@ -114,10 +125,28 @@ module cpu_top (
     logic        ALUSrcB;
     logic [31:0] imm12_zext;
     logic [3:0]  alu_ctrl;
+    logic [31:0] op2_immediate;
+    logic [31:0] op2_mux;
+
+    function automatic [31:0] expand_arm_imm(input logic [7:0] imm8, input logic [3:0] rot);
+        logic [31:0] value;
+        logic [4:0]  shift;
+        begin
+            value = {24'b0, imm8};
+            shift = {rot, 1'b0};
+            if (shift == 5'd0)
+                expand_arm_imm = value;
+            else
+                expand_arm_imm = (value >> shift) | (value << (32 - shift));
+        end
+    endfunction
 
     assign imm12_zext = {20'b0, operand2[11:0]};
     assign alu_a      = rf_rd1;
-    assign alu_b      = (ALUSrcB) ? imm12_zext : op2_shifted;
+    assign op2_immediate = expand_arm_imm(operand2[7:0], operand2[11:8]);
+    assign op2_mux      = (instr_type == 2'd0 && op2_is_imm) ? op2_immediate
+                                                             : op2_shifted;
+    assign alu_b        = (ALUSrcB) ? imm12_zext : op2_mux;
 
     // Para LDR/STR (instr_type=1) siempre ADD
     // Para DataProc opcode directo.
@@ -174,17 +203,26 @@ module cpu_top (
 
     assign rf_wd = (MemToReg) ? dmem_out : alu_y;
 
+    // Escrituras especiales (BL y escritura en PC)
+    logic do_link;
+    assign do_link = (instr_type == 2'd2) && instr[24] && cond_ok;
+
+    assign rf_we       = (do_link) ? 1'b1 : RegWrite;
+    assign rf_wa       = (do_link) ? 4'd14 : Rd;
+    assign rf_wd_final = (do_link) ? pc_plus4 : rf_wd;
+
 
     // next pc logic
-    logic [31:0] pc_plus4, branch_offs;
-
-    assign pc_plus4    = pc + 32'd4;
+    logic [31:0] branch_offs;
+    logic        write_back_updates_pc;
 
     // Sign-extend correcto de imm24 << 2
     assign branch_offs = {{6{instr[23]}}, instr[23:0], 2'b00};
+    assign write_back_updates_pc = (rf_we && (rf_wa == 4'd15));
 
-    assign pc_next = (Branch) ? (pc_plus4 + branch_offs)
-                              : pc_plus4;
+    assign pc_next = (write_back_updates_pc) ? rf_wd_final
+                                             : (Branch ? (pc_plus4 + branch_offs)
+                                                       : pc_plus4);
 
 
     // debug flags
