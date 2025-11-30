@@ -1,31 +1,81 @@
     .global _start
     .text
 
-@ Programa de prueba para FASE 1:
-@  - Calcula R0=12*5
-@  - Divide 100 / 8 y guarda cociente y residuo
-@  - Convierte 3456 a ASCII decimal en RAM
+@ Programa de la CALCULADORA (versión 0.1)
+@ Convención en RAM (base = 0x1000_0000):
+@   [R4, #0]  -> operando A (32 bits)
+@   [R4, #4]  -> operando B (32 bits)
+@   [R4, #8]  -> opcode de operación:
+@                  0 = A + B
+@                  1 = A - B
+@                  2 = A * B   (usa mul_software)
+@                  3 = A / B   (usa div_software)
+@   [R4, #12] -> resultado principal (32 bits)
+@   [R4, #16] -> extra (por ahora: residuo en división)
 
 _start:
-    LDR     R4, =0x10000000        @ Base de la RAM mapeada
+    @ R4 = base de RAM de datos (región 0x1000_0000)
+    LDR     R4, =0x10000000
 
-    MOV     R0, #12                @ Operando A
-    MOV     R1, #5                 @ Operando B
-    BL      mul_software           @ R0 = 60
-    STR     R0, [R4, #0]           @ Guardar producto
+    @ --- Valores de prueba internos (por ahora) ---
+    @ A = 12, B = 5, opcode = 0 (suma)
+    MOV     R0, #12              @ A
+    MOV     R1, #5               @ B
+    STR     R0, [R4, #0]         @ RAM[A]
+    STR     R1, [R4, #4]         @ RAM[B]
 
-    MOV     R0, #100               @ Dividendo
-    MOV     R1, #8                 @ Divisor
-    BL      div_software           @ R0 = cociente, R1 = residuo
-    STR     R0, [R4, #4]
-    STR     R1, [R4, #8]
+    MOV     R2, #0               @ opcode = 0 (suma)
+    STR     R2, [R4, #8]
 
-    MOV     R0, #3456              @ Valor a convertir
-    LDR     R1, =0x10000040        @ Buffer decimal en RAM
-    BL      bin_to_decimal
+main_loop:
+    @ Cargar A, B y opcode desde RAM
+    LDR     R0, [R4, #0]         @ A
+    LDR     R1, [R4, #4]         @ B
+    LDR     R2, [R4, #8]         @ opcode
 
-loop:
-    B       loop                   @ Esperar lectura via SignalTap/LEDs
+    @ Seleccionar operación según opcode
+    CMP     R2, #0
+    BEQ     do_add
+
+    CMP     R2, #1
+    BEQ     do_sub
+
+    CMP     R2, #2
+    BEQ     do_mul
+
+    CMP     R2, #3
+    BEQ     do_div
+
+    @ Si opcode inválido, solo repetir
+    B       main_loop
+
+@ --------- Operaciones básicas ---------
+
+do_add:
+    ADD     R3, R0, R1           @ R3 = A + B
+    STR     R3, [R4, #12]        @ resultado
+    B       main_loop
+
+do_sub:
+    SUB     R3, R0, R1           @ R3 = A - B
+    STR     R3, [R4, #12]
+    B       main_loop
+
+do_mul:
+    @ mul_software: entrada R0=A, R1=B, salida R0 = A*B
+    BL      mul_software
+    STR     R0, [R4, #12]
+    B       main_loop
+
+do_div:
+    @ div_software: entrada R0=A, R1=B
+    @ salida: R0 = cociente, R1 = residuo
+    CMP     R1, #0
+    BEQ     main_loop            @ evitar división entre cero
+    BL      div_software
+    STR     R0, [R4, #12]        @ cociente
+    STR     R1, [R4, #16]        @ residuo
+    B       main_loop
 
 
 @--------------------------------------------------------------
@@ -134,11 +184,8 @@ bin_no_more_const:
 bin_store_terminator:
     MOV     R7, #0
     STR     R7, [R9]
-    MOV     R0, R8                 @ Restaurar valor original
+    MOV     R0, R8                 @ Restaurar valor
     MOV     PC, LR
-
-
-    .ltorg
 
     .data
     .align 4
