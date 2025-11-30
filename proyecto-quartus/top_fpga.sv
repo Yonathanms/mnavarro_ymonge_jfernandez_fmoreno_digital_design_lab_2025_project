@@ -10,9 +10,26 @@ module top_fpga (
 
     assign rst = ~KEY[0];
 
+    // Reloj 25 MHz para el puerto B de la VRAM (dominio VGA futuro)
+    logic clk_25;
+    always_ff @(posedge CLOCK_50 or posedge rst) begin
+        if (rst)
+            clk_25 <= 1'b0;
+        else
+            clk_25 <= ~clk_25;
+    end
+
+    // Direcciones del puerto B (por ahora fijadas en cero hasta integrar VGA)
+    logic [9:0] vram_addr_b;
+    assign vram_addr_b = 10'd0;
+    logic [31:0] vram_q_b;
+
     cpu_top U_CPU (
         .clk      (CLOCK_50),
         .rst      (rst),
+        .vram_clk_b (clk_25),
+        .vram_addr_b(vram_addr_b),
+        .vram_q_b   (vram_q_b),
         .debug_pc (debug_pc),
         .dbg_alu  (dbg_alu),
         .dbg_mem  (dbg_mem),

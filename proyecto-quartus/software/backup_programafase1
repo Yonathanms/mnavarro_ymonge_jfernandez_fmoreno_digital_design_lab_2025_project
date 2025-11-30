@@ -24,16 +24,6 @@ _start:
     LDR     R1, =0x10000040        @ Buffer decimal en RAM
     BL      bin_to_decimal
 
-    @ --- Nueva prueba: escribir texto en VRAM (0x3000_0000) ---
-    LDR     R5, =0x30000000        @ Base de VRAM
-    LDR     R6, =vram_test_text    @ Puntero al texto de prueba
-
-vram_store_loop:
-    LDR     R7, [R6], #4           @ Leer palabra y avanzar puntero
-    STR     R7, [R5], #4           @ Escribir en VRAM con post-incremento
-    CMP     R7, #0                 @ Terminador?
-    BNE     vram_store_loop        @ Continuar hasta el cero final
-
 loop:
     B       loop                   @ Esperar lectura via SignalTap/LEDs
 
@@ -150,6 +140,7 @@ bin_store_terminator:
 
     .ltorg
 
+    .data
     .align 4
 powers_of_10:
     .word 1000000000
@@ -162,17 +153,4 @@ powers_of_10:
     .word 100
     .word 10
     .word 1
-    .word 0
-
-vram_test_text:
-    .word 'H'
-    .word 'E'
-    .word 'L'
-    .word 'L'
-    .word 'O'
-    .word ' '
-    .word 'A'
-    .word 'R'
-    .word 'M'
-    .word '!'
     .word 0

@@ -1,6 +1,11 @@
 module cpu_top (
     input  logic        clk,
     input  logic        rst,
+    // Interfaz VRAM puerto B para el subsistema VGA
+    input  logic        vram_clk_b,
+    input  logic [9:0]  vram_addr_b,
+    output logic [31:0] vram_q_b,
+
     output logic [31:0] debug_pc,
     output logic        dbg_alu,
     output logic        dbg_mem,
@@ -21,12 +26,17 @@ module cpu_top (
 
     // Sistema de memoria centralizado: lee instrucciones desde ROM (región 0x0)
     logic [31:0] mem_read_data;
-    mem_system U_MEM (
+    mem_system #(
+        .INCLUDE_VRAM(1'b0)
+    ) U_MEM (
         .clk        (clk),
         .addr       (pc),                    // PC se usa como dirección de lectura
         .write_data (32'h0000_0000),         // No escribe en fetch
         .MemWrite   (1'b0),                  // No escribe en fetch
-        .read_data  (mem_read_data)
+        .read_data  (mem_read_data),
+        .vram_clk_b (1'b0),
+        .vram_addr_b(10'd0),
+        .vram_q_b   ()
     );
 
     assign instr    = mem_read_data;
@@ -169,12 +179,17 @@ module cpu_top (
     logic        MemWrite, MemToReg;
 
     // El CPU escribe/lee datos en dirección calculada por ALU a través de mem_system
-    mem_system U_MEM_DATA (
+    mem_system #(
+        .INCLUDE_VRAM(1'b1)
+    ) U_MEM_DATA (
         .clk        (clk),
         .addr       (alu_y),                 // Dirección de datos calculada por ALU
         .write_data (rf_rd2),                // Datos a escribir (desde rf_rd2)
         .MemWrite   (MemWrite),              // Señal de escritura
-        .read_data  (dmem_out)               // Datos leídos
+        .read_data  (dmem_out),              // Datos leídos
+        .vram_clk_b (vram_clk_b),
+        .vram_addr_b(vram_addr_b),
+        .vram_q_b   (vram_q_b)
     );
 
 
