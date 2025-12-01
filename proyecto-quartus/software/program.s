@@ -25,14 +25,41 @@ _start:
     BL      bin_to_decimal
 
     @ --- Nueva prueba: escribir texto en VRAM (0x3000_0000) ---
-    LDR     R5, =0x30000000        @ Base de VRAM
-    LDR     R6, =vram_test_text    @ Puntero al texto de prueba
+    LDR     R10, =0x30000000       @ Base de VRAM
 
-vram_store_loop:
-    LDR     R7, [R6], #4           @ Leer palabra y avanzar puntero
-    STR     R7, [R5], #4           @ Escribir en VRAM con post-incremento
-    CMP     R7, #0                 @ Terminador?
-    BNE     vram_store_loop        @ Continuar hasta el cero final
+    MOV     R7, #0x48              @ 'H'
+    STR     R7, [R10]
+    ADD     R10, R10, #4
+    MOV     R7, #0x45              @ 'E'
+    STR     R7, [R10]
+    ADD     R10, R10, #4
+    MOV     R7, #0x4C              @ 'L'
+    STR     R7, [R10]
+    ADD     R10, R10, #4
+    MOV     R7, #0x4C              @ 'L'
+    STR     R7, [R10]
+    ADD     R10, R10, #4
+    MOV     R7, #0x4F              @ 'O'
+    STR     R7, [R10]
+    ADD     R10, R10, #4
+    MOV     R7, #0x20              @ ' '
+    STR     R7, [R10]
+    ADD     R10, R10, #4
+    MOV     R7, #0x41              @ 'A'
+    STR     R7, [R10]
+    ADD     R10, R10, #4
+    MOV     R7, #0x52              @ 'R'
+    STR     R7, [R10]
+    ADD     R10, R10, #4
+    MOV     R7, #0x4D              @ 'M'
+    STR     R7, [R10]
+    ADD     R10, R10, #4
+    MOV     R7, #0x21              @ '!'
+    STR     R7, [R10]
+    ADD     R10, R10, #4
+    MOV     R7, #0x00              @ Terminador
+    STR     R7, [R10]
+    ADD     R10, R10, #4
 
 loop:
     B       loop                   @ Esperar lectura via SignalTap/LEDs
@@ -176,3 +203,6 @@ vram_test_text:
     .word 'M'
     .word '!'
     .word 0
+
+
+
