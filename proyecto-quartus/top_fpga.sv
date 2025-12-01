@@ -1,7 +1,15 @@
 module top_fpga (
-    input  logic CLOCK_50,
-    input  logic [0:0] KEY,
-    output logic [9:0] LEDR
+    input  logic        CLOCK_50,
+    input  logic [0:0]  KEY,
+    output logic [9:0]  LEDR,
+    output logic        VGA_CLK,
+    output logic        VGA_BLANK_N,
+    output logic        VGA_SYNC_N,
+    output logic        VGA_HS,
+    output logic        VGA_VS,
+    output logic [7:0]  VGA_R,
+    output logic [7:0]  VGA_G,
+    output logic [7:0]  VGA_B
 );
 
     logic rst;
@@ -10,7 +18,7 @@ module top_fpga (
 
     assign rst = ~KEY[0];
 
-    // Reloj 25 MHz para el puerto B de la VRAM (dominio VGA futuro)
+    // Reloj 25 MHz para el dominio VGA (señal ya validada en top_vga_test)
     logic clk_25;
     always_ff @(posedge CLOCK_50 or posedge rst) begin
         if (rst)
@@ -18,10 +26,9 @@ module top_fpga (
         else
             clk_25 <= ~clk_25;
     end
+    assign VGA_CLK = clk_25;
 
-    // Direcciones del puerto B (por ahora fijadas en cero hasta integrar VGA)
     logic [9:0] vram_addr_b;
-    assign vram_addr_b = 10'd0;
     logic [31:0] vram_q_b;
 
     cpu_top U_CPU (
@@ -35,6 +42,37 @@ module top_fpga (
         .dbg_mem  (dbg_mem),
         .dbg_br   (dbg_br)
     );
+
+    // Controlador VGA: temporización + renderer de texto
+    logic [9:0] pixel_x;
+    logic [9:0] pixel_y;
+    logic       video_on;
+
+    vga_timing U_VGA_TIMING (
+        .clk_pix  (clk_25),
+        .rst      (rst),
+        .hsync    (VGA_HS),
+        .vsync    (VGA_VS),
+        .video_on (video_on),
+        .pixel_x  (pixel_x),
+        .pixel_y  (pixel_y)
+    );
+
+    vga_renderer U_VGA_RENDERER (
+        .clk_pix    (clk_25),
+        .rst        (rst),
+        .video_on   (video_on),
+        .pixel_x    (pixel_x),
+        .pixel_y    (pixel_y),
+        .vram_addr_b(vram_addr_b),
+        .vram_q_b   (vram_q_b),
+        .vga_r      (VGA_R),
+        .vga_g      (VGA_G),
+        .vga_b      (VGA_B)
+    );
+
+    assign VGA_BLANK_N = video_on;
+    assign VGA_SYNC_N  = 1'b0;
 
     // Divisor de frecuencia para ralentizar LED[4] a velocidad visible
     // Dividimos 50 MHz por 2^24 para obtener parpadeo visible (~3 Hz)

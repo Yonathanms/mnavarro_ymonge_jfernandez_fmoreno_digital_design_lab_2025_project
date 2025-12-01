@@ -71,12 +71,15 @@ module cpu_top (
     logic        RegWrite, rf_we;
     logic [3:0]  rf_wa;
 
+    logic [3:0] rf_ra2;
+    assign rf_ra2 = (instr_type == 2'd1) ? Rd : Rm; // En LDR/STR necesitamos acceder a Rd para STR
+
     regfile U_RF (
         .clk (clk),
         .rst (rst),
         .we  (rf_we),
         .ra1 (Rn),
-        .ra2 (Rm),
+        .ra2 (rf_ra2),
         .wa  (rf_wa),
         .wd  (rf_wd_final),
         .rd1 (rf_rd1_raw),
