@@ -88,28 +88,21 @@ main_loop:
     ADD     R10, R10, #20          @ Desplazar tras "KEY: "
 
     @ Convertir scancode a ASCII hexadecimal y mostrar
-    @ Scancode = 0xAB → mostrar "AB" en pantalla
-    
+    @ Scancode = 0xAB -> mostrar "AB" en pantalla
+
     @ Nibble alto (bits [7:4])
     MOV     R6, R3, LSR #4         @ R6 = nibble alto
     CMP     R6, #10                @ Comparar para decidir offset ASCII
     ADDLT   R6, R6, #0x30          @ Si <10, convertir a '0'-'9'
     ADDGE   R6, R6, #0x37          @ Si >=10, convertir a 'A'-'F'
     STR     R6, [R10]              @ Escribir primer dígito hex
-    ADD     R10, R10, #4           @ Avanzar puntero
 
     @ Nibble bajo (bits [3:0])
-    AND     R6, R3, #0x0F          @ R6 = nibble bajo
-    CMP     R6, #10
-    ADDLT   R6, R6, #0x30
-    ADDGE   R6, R6, #0x37
-    STR     R6, [R10]              @ Escribir segundo dígito hex
-
-    @ Esperar un poco para que sea visible (opcional)
-    MOV     R8, #0x100000
-delay_loop:
-    SUBS    R8, R8, #1
-    BNE     delay_loop
+    AND     R7, R3, #0x0F          @ R7 = nibble bajo
+    CMP     R7, #10
+    ADDLT   R7, R7, #0x30
+    ADDGE   R7, R7, #0x37
+    STR     R7, [R10, #4]          @ Escribir segundo dígito hex
 
     @ Continuar polling
     B       main_loop
