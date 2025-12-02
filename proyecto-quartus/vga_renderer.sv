@@ -3,6 +3,8 @@
 module vga_renderer #(
     parameter int TEXT_COLS   = 40,
     parameter int TEXT_ROWS   = 25,
+    parameter int H_OFFSET_PIX = 32,  // margen horizontal en píxeles
+    parameter int V_OFFSET_PIX = 32,  // margen vertical en píxeles
     parameter logic [7:0] FG_R = 8'hFF,
     parameter logic [7:0] FG_G = 8'hFF,
     parameter logic [7:0] FG_B = 8'hFF,
@@ -25,11 +27,32 @@ module vga_renderer #(
     output logic [7:0]  vga_b
 );
 
-    // División por 16 -> cada carácter ocupa 16x16 píxeles (horizontal duplicada).
+    localparam int CELL_SIZE = 16;
+    localparam int ACTIVE_W  = TEXT_COLS * CELL_SIZE;
+    localparam int ACTIVE_H  = TEXT_ROWS * CELL_SIZE;
+
+    logic inside_window;
+    logic [9:0] adj_x;
+    logic [9:0] adj_y;
     logic [5:0] text_col;
     logic [5:0] text_row;
-    assign text_col = pixel_x[9:4];
-    assign text_row = pixel_y[9:4];
+
+    always_comb begin
+        inside_window = (pixel_x >= H_OFFSET_PIX) && (pixel_x < (H_OFFSET_PIX + ACTIVE_W)) &&
+                        (pixel_y >= V_OFFSET_PIX) && (pixel_y < (V_OFFSET_PIX + ACTIVE_H));
+        if (pixel_x >= H_OFFSET_PIX)
+            adj_x = pixel_x - H_OFFSET_PIX;
+        else
+            adj_x = 10'd0;
+
+        if (pixel_y >= V_OFFSET_PIX)
+            adj_y = pixel_y - V_OFFSET_PIX;
+        else
+            adj_y = 10'd0;
+
+        text_col = adj_x[9:4];
+        text_row = adj_y[9:4];
+    end
 
     logic [3:0] row_in_char_s0, subcol_s0;
     logic       video_on_s0, active_text_s0;
@@ -68,7 +91,7 @@ module vga_renderer #(
             row_in_char_s0 <= pixel_y[3:0];
             subcol_s0      <= pixel_x[3:0];
             video_on_s0    <= video_on;
-            active_text_s0 <= (text_row < TEXT_ROWS) && (text_col < TEXT_COLS) && video_on;
+            active_text_s0 <= inside_window && video_on;
         end
     end
 
