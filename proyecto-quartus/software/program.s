@@ -14,38 +14,51 @@ _start:
     LDR     R5, =0x30000000        @ Base de VRAM
 
     @ Escribir título "PS/2 TEST" en fila 0
-    MOV     R10, R5                @ R10 = puntero VRAM actual
+    MOV     R10, R5                @ R10 = puntero VRAM (0x30000000)
     
     MOV     R7, #0x50              @ 'P'
-    STR     R7, [R10], #4
+    STR     R7, [R10]
+    ADD     R10, R10, #4
     MOV     R7, #0x53              @ 'S'
-    STR     R7, [R10], #4
+    STR     R7, [R10]
+    ADD     R10, R10, #4
     MOV     R7, #0x32              @ '2'
-    STR     R7, [R10], #4
+    STR     R7, [R10]
+    ADD     R10, R10, #4
     MOV     R7, #0x20              @ ' '
-    STR     R7, [R10], #4
+    STR     R7, [R10]
+    ADD     R10, R10, #4
     MOV     R7, #0x54              @ 'T'
-    STR     R7, [R10], #4
+    STR     R7, [R10]
+    ADD     R10, R10, #4
     MOV     R7, #0x45              @ 'E'
-    STR     R7, [R10], #4
+    STR     R7, [R10]
+    ADD     R10, R10, #4
     MOV     R7, #0x53              @ 'S'
-    STR     R7, [R10], #4
+    STR     R7, [R10]
+    ADD     R10, R10, #4
     MOV     R7, #0x54              @ 'T'
-    STR     R7, [R10], #4
+    STR     R7, [R10]
+    ADD     R10, R10, #4
 
     @ Escribir "KEY: " en fila 2 (offset 80 = 40*2)
-    ADD     R10, R5, #320          @ offset 80 palabras = 320 bytes
+    ADD     R10, R5, #320          @ R10 = 0x30000000 + 320 bytes (fila 2)
     
     MOV     R7, #0x4B              @ 'K'
-    STR     R7, [R10], #4
+    STR     R7, [R10]
+    ADD     R10, R10, #4
     MOV     R7, #0x45              @ 'E'
-    STR     R7, [R10], #4
+    STR     R7, [R10]
+    ADD     R10, R10, #4
     MOV     R7, #0x59              @ 'Y'
-    STR     R7, [R10], #4
+    STR     R7, [R10]
+    ADD     R10, R10, #4
     MOV     R7, #0x3A              @ ':'
-    STR     R7, [R10], #4
+    STR     R7, [R10]
+    ADD     R10, R10, #4
     MOV     R7, #0x20              @ ' '
-    STR     R7, [R10], #4
+    STR     R7, [R10]
+    ADD     R10, R10, #4
 
     @ R10 ahora apunta donde escribir el scancode en hex
 
@@ -70,12 +83,13 @@ main_loop:
     @ Nibble alto (bits [7:4])
     MOV     R6, R3, LSR #4         @ R6 = nibble alto
     BL      nibble_to_ascii        @ R6 = ASCII del nibble
-    STR     R6, [R10, #0]          @ Escribir primer dígito hex
+    STR     R6, [R10]              @ Escribir primer dígito hex
+    ADD     R10, R10, #4           @ Avanzar puntero
 
     @ Nibble bajo (bits [3:0])
     AND     R6, R3, #0x0F          @ R6 = nibble bajo
     BL      nibble_to_ascii        @ R6 = ASCII del nibble
-    STR     R6, [R10, #4]          @ Escribir segundo dígito hex
+    STR     R6, [R10]              @ Escribir segundo dígito hex
 
     @ Esperar un poco para que sea visible (opcional)
     MOV     R8, #0x100000
