@@ -1,6 +1,8 @@
 module top_fpga (
     input  logic        CLOCK_50,
     input  logic [0:0]  KEY,
+    input  logic        PS2_CLK,
+    input  logic        PS2_DAT,
     output logic [9:0]  LEDR,
     output logic        VGA_CLK,
     output logic        VGA_BLANK_N,
@@ -32,15 +34,17 @@ module top_fpga (
     logic [31:0] vram_q_b;
 
     cpu_top U_CPU (
-        .clk      (CLOCK_50),
-        .rst      (rst),
-        .vram_clk_b (clk_25),
-        .vram_addr_b(vram_addr_b),
-        .vram_q_b   (vram_q_b),
-        .debug_pc (debug_pc),
-        .dbg_alu  (dbg_alu),
-        .dbg_mem  (dbg_mem),
-        .dbg_br   (dbg_br)
+        .clk         (CLOCK_50),
+        .rst         (rst),
+        .vram_clk_b  (clk_25),
+        .vram_addr_b (vram_addr_b),
+        .vram_q_b    (vram_q_b),
+        .ps2_clk     (PS2_CLK),
+        .ps2_data    (PS2_DAT),
+        .debug_pc    (debug_pc),
+        .dbg_alu     (dbg_alu),
+        .dbg_mem     (dbg_mem),
+        .dbg_br      (dbg_br)
     );
 
     // Controlador VGA: temporización + renderer de texto

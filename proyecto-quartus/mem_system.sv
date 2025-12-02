@@ -5,7 +5,8 @@
 // VRAM[0x3000_0000 - 0x3000_03FF]: VRAM dual-puerto (1024 palabras)
 
 module mem_system #(
-    parameter bit INCLUDE_VRAM = 1'b0
+    parameter bit INCLUDE_VRAM = 1'b0,
+    parameter bit INCLUDE_PS2  = 1'b0
 ) (
     input  logic        clk,
     input  logic [31:0] addr,          // Dirección completa (32 bits)
@@ -16,7 +17,12 @@ module mem_system #(
     // Interfaz del puerto B de la VRAM (solo se usa si INCLUDE_VRAM=1)
     input  logic        vram_clk_b,
     input  logic [9:0]  vram_addr_b,
-    output logic [31:0] vram_q_b
+    output logic [31:0] vram_q_b,
+
+    // Interfaz PS/2 (solo se usa si INCLUDE_PS2=1)
+    input  logic [7:0]  ps2_scancode,
+    input  logic        ps2_scancode_ready,
+    input  logic        ps2_error
 );
 
     // Señales de ROM
@@ -32,6 +38,11 @@ module mem_system #(
     logic [9:0]  vram_addr_a;
     logic [31:0] vram_q_a;
     logic        vram_we;
+
+    // Registros PS/2 (solo válidos si INCLUDE_PS2=1)
+    logic [31:0] ps2_data_reg;
+    logic [31:0] ps2_status_reg;
+    logic        ps2_status_read;
 
     // Decodificar región según bits [31:28] de dirección
     logic [3:0] region;
@@ -63,6 +74,36 @@ module mem_system #(
 
     assign vram_we = (INCLUDE_VRAM && region == 4'h3 && MemWrite) ? 1'b1 : 1'b0;
 
+    // ========================================
+    // Lógica de registros PS/2
+    // ========================================
+    generate
+        if (INCLUDE_PS2) begin : g_ps2
+            // ps2_data_reg (0x20000000): último scancode recibido
+            always_ff @(posedge clk) begin
+                if (ps2_scancode_ready)
+                    ps2_data_reg <= {24'h000000, ps2_scancode};
+            end
+
+            // ps2_status_reg (0x20000004): [0]=new_data, [1]=error
+            // El bit new_data se auto-limpia al leer ps2_status_reg
+            assign ps2_status_read = (region == 4'h2 && addr[11:2] == 10'h001);
+
+            logic new_data_flag;
+            always_ff @(posedge clk) begin
+                if (ps2_scancode_ready)
+                    new_data_flag <= 1'b1;
+                else if (ps2_status_read)
+                    new_data_flag <= 1'b0;
+            end
+
+            assign ps2_status_reg = {30'h0, ps2_error, new_data_flag};
+        end else begin : g_no_ps2
+            assign ps2_data_reg = 32'h0000_0000;
+            assign ps2_status_reg = 32'h0000_0000;
+        end
+    endgenerate
+
     // Generación condicional de la VRAM dual-port
     generate
         if (INCLUDE_VRAM) begin : g_vram
@@ -89,7 +130,17 @@ module mem_system #(
         case (region)
             4'h0: read_data = rom_data;      // ROM: 0x0000_0000
             4'h1: read_data = ram_data;      // RAM: 0x1000_0000
-            4'h2: read_data = 32'h0000_0000; // PS2: 0x2000_0000 (reservado)
+            4'h2: begin                      // PS2: 0x2000_0000
+                if (INCLUDE_PS2) begin
+                    case (addr[11:2])
+                        10'h000: read_data = ps2_data_reg;   // 0x20000000
+                        10'h001: read_data = ps2_status_reg; // 0x20000004
+                        default: read_data = 32'h0000_0000;
+                    endcase
+                end else begin
+                    read_data = 32'h0000_0000;
+                end
+            end
             4'h3: read_data = vram_q_a;      // VRAM: 0x3000_0000
             default: read_data = 32'h0000_0000;
         endcase

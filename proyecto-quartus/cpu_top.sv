@@ -5,6 +5,9 @@ module cpu_top (
     input  logic        vram_clk_b,
     input  logic [9:0]  vram_addr_b,
     output logic [31:0] vram_q_b,
+    // Interfaz PS/2
+    input  logic        ps2_clk,
+    input  logic        ps2_data,
 
     output logic [31:0] debug_pc,
     output logic        dbg_alu,
@@ -12,6 +15,33 @@ module cpu_top (
     output logic        dbg_br
 );
 
+
+    // ========================================
+    // Módulos PS/2
+    // ========================================
+    logic ps2_clk_sync, ps2_data_sync;
+    logic [7:0] ps2_scancode;
+    logic ps2_scancode_ready;
+    logic ps2_error;
+
+    ps2_sync U_PS2_SYNC (
+        .clk           (clk),
+        .rst           (rst),
+        .ps2_clk       (ps2_clk),
+        .ps2_data      (ps2_data),
+        .ps2_clk_sync  (ps2_clk_sync),
+        .ps2_data_sync (ps2_data_sync)
+    );
+
+    ps2_receiver U_PS2_RECEIVER (
+        .clk            (clk),
+        .rst            (rst),
+        .ps2_clk_sync   (ps2_clk_sync),
+        .ps2_data_sync  (ps2_data_sync),
+        .scancode       (ps2_scancode),
+        .scancode_ready (ps2_scancode_ready),
+        .error          (ps2_error)
+    );
 
     // fetch
     logic [31:0] pc, pc_next, instr;
@@ -27,16 +57,20 @@ module cpu_top (
     // Sistema de memoria centralizado: lee instrucciones desde ROM (región 0x0)
     logic [31:0] mem_read_data;
     mem_system #(
-        .INCLUDE_VRAM(1'b0)
+        .INCLUDE_VRAM(1'b0),
+        .INCLUDE_PS2 (1'b0)
     ) U_MEM (
-        .clk        (clk),
-        .addr       (pc),                    // PC se usa como dirección de lectura
-        .write_data (32'h0000_0000),         // No escribe en fetch
-        .MemWrite   (1'b0),                  // No escribe en fetch
-        .read_data  (mem_read_data),
-        .vram_clk_b (1'b0),
-        .vram_addr_b(10'd0),
-        .vram_q_b   ()
+        .clk               (clk),
+        .addr              (pc),                    // PC se usa como dirección de lectura
+        .write_data        (32'h0000_0000),         // No escribe en fetch
+        .MemWrite          (1'b0),                  // No escribe en fetch
+        .read_data         (mem_read_data),
+        .vram_clk_b        (1'b0),
+        .vram_addr_b       (10'd0),
+        .vram_q_b          (),
+        .ps2_scancode      (8'h00),
+        .ps2_scancode_ready(1'b0),
+        .ps2_error         (1'b0)
     );
 
     assign instr    = mem_read_data;
@@ -183,16 +217,20 @@ module cpu_top (
 
     // El CPU escribe/lee datos en dirección calculada por ALU a través de mem_system
     mem_system #(
-        .INCLUDE_VRAM(1'b1)
+        .INCLUDE_VRAM(1'b1),
+        .INCLUDE_PS2 (1'b1)
     ) U_MEM_DATA (
-        .clk        (clk),
-        .addr       (alu_y),                 // Dirección de datos calculada por ALU
-        .write_data (rf_rd2),                // Datos a escribir (desde rf_rd2)
-        .MemWrite   (MemWrite),              // Señal de escritura
-        .read_data  (dmem_out),              // Datos leídos
-        .vram_clk_b (vram_clk_b),
-        .vram_addr_b(vram_addr_b),
-        .vram_q_b   (vram_q_b)
+        .clk               (clk),
+        .addr              (alu_y),                 // Dirección de datos calculada por ALU
+        .write_data        (rf_rd2),                // Datos a escribir (desde rf_rd2)
+        .MemWrite          (MemWrite),              // Señal de escritura
+        .read_data         (dmem_out),              // Datos leídos
+        .vram_clk_b        (vram_clk_b),
+        .vram_addr_b       (vram_addr_b),
+        .vram_q_b          (vram_q_b),
+        .ps2_scancode      (ps2_scancode),
+        .ps2_scancode_ready(ps2_scancode_ready),
+        .ps2_error         (ps2_error)
     );
 
 

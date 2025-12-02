@@ -1,208 +1,111 @@
     .global _start
     .text
 
-@ Programa de prueba para FASE 1:
-@  - Calcula R0=12*5
-@  - Divide 100 / 8 y guarda cociente y residuo
-@  - Convierte 3456 a ASCII decimal en RAM
+@ ============================================================
+@ Programa de prueba: Integración PS/2 + VRAM
+@ ============================================================
+@ Lee scancodes del teclado PS/2 y los muestra en la pantalla VGA
+@ Los scancodes se escriben en formato hexadecimal en VRAM
+@ ============================================================
 
 _start:
-    LDR     R4, =0x10000000        @ Base de la RAM mapeada
+    @ Inicializar punteros base
+    LDR     R4, =0x20000000        @ Base de registros PS/2
+    LDR     R5, =0x30000000        @ Base de VRAM
 
-    MOV     R0, #12                @ Operando A
-    MOV     R1, #5                 @ Operando B
-    BL      mul_software           @ R0 = 60
-    STR     R0, [R4, #0]           @ Guardar producto
-
-    MOV     R0, #100               @ Dividendo
-    MOV     R1, #8                 @ Divisor
-    BL      div_software           @ R0 = cociente, R1 = residuo
-    STR     R0, [R4, #4]
-    STR     R1, [R4, #8]
-
-    MOV     R0, #3456              @ Valor a convertir
-    LDR     R1, =0x10000040        @ Buffer decimal en RAM
-    BL      bin_to_decimal
-
-    @ --- Nueva prueba: escribir texto en VRAM (0x3000_0000) ---
-    LDR     R10, =0x30000000       @ Base de VRAM
-
-    MOV     R7, #0x48              @ 'H'
-    STR     R7, [R10]
-    ADD     R10, R10, #4
-    MOV     R7, #0x45              @ 'E'
-    STR     R7, [R10]
-    ADD     R10, R10, #4
-    MOV     R7, #0x4C              @ 'L'
-    STR     R7, [R10]
-    ADD     R10, R10, #4
-    MOV     R7, #0x4C              @ 'L'
-    STR     R7, [R10]
-    ADD     R10, R10, #4
-    MOV     R7, #0x4F              @ 'O'
-    STR     R7, [R10]
-    ADD     R10, R10, #4
+    @ Escribir título "PS/2 TEST" en fila 0
+    MOV     R10, R5                @ R10 = puntero VRAM actual
+    
+    MOV     R7, #0x50              @ 'P'
+    STR     R7, [R10], #4
+    MOV     R7, #0x53              @ 'S'
+    STR     R7, [R10], #4
+    MOV     R7, #0x32              @ '2'
+    STR     R7, [R10], #4
     MOV     R7, #0x20              @ ' '
-    STR     R7, [R10]
-    ADD     R10, R10, #4
-    MOV     R7, #0x41              @ 'A'
-    STR     R7, [R10]
-    ADD     R10, R10, #4
-    MOV     R7, #0x52              @ 'R'
-    STR     R7, [R10]
-    ADD     R10, R10, #4
-    MOV     R7, #0x4D              @ 'M'
-    STR     R7, [R10]
-    ADD     R10, R10, #4
-    MOV     R7, #0x21              @ '!'
-    STR     R7, [R10]
-    ADD     R10, R10, #4
-    MOV     R7, #0x00              @ Terminador
-    STR     R7, [R10]
-    ADD     R10, R10, #4
+    STR     R7, [R10], #4
+    MOV     R7, #0x54              @ 'T'
+    STR     R7, [R10], #4
+    MOV     R7, #0x45              @ 'E'
+    STR     R7, [R10], #4
+    MOV     R7, #0x53              @ 'S'
+    STR     R7, [R10], #4
+    MOV     R7, #0x54              @ 'T'
+    STR     R7, [R10], #4
 
-loop:
-    B       loop                   @ Esperar lectura via SignalTap/LEDs
+    @ Escribir "KEY: " en fila 2 (offset 80 = 40*2)
+    ADD     R10, R5, #320          @ offset 80 palabras = 320 bytes
+    
+    MOV     R7, #0x4B              @ 'K'
+    STR     R7, [R10], #4
+    MOV     R7, #0x45              @ 'E'
+    STR     R7, [R10], #4
+    MOV     R7, #0x59              @ 'Y'
+    STR     R7, [R10], #4
+    MOV     R7, #0x3A              @ ':'
+    STR     R7, [R10], #4
+    MOV     R7, #0x20              @ ' '
+    STR     R7, [R10], #4
+
+    @ R10 ahora apunta donde escribir el scancode en hex
+
+@ ============================================================
+@ Loop principal: polling de PS/2
+@ ============================================================
+main_loop:
+    @ Leer PS2_STATUS (0x20000004)
+    LDR     R1, [R4, #4]           @ R1 = PS2_STATUS
+    AND     R2, R1, #1             @ R2 = bit[0] = new_data
+    CMP     R2, #0
+    BEQ     main_loop              @ Si no hay datos nuevos, seguir polling
+
+    @ Hay nuevo scancode disponible
+    @ Leer PS2_DATA (0x20000000)
+    LDR     R3, [R4, #0]           @ R3 = scancode (8 bits en [7:0])
+    AND     R3, R3, #0xFF          @ Asegurar solo 8 bits
+
+    @ Convertir scancode a ASCII hexadecimal y mostrar
+    @ Scancode = 0xAB → mostrar "AB" en pantalla
+    
+    @ Nibble alto (bits [7:4])
+    MOV     R6, R3, LSR #4         @ R6 = nibble alto
+    BL      nibble_to_ascii        @ R6 = ASCII del nibble
+    STR     R6, [R10, #0]          @ Escribir primer dígito hex
+
+    @ Nibble bajo (bits [3:0])
+    AND     R6, R3, #0x0F          @ R6 = nibble bajo
+    BL      nibble_to_ascii        @ R6 = ASCII del nibble
+    STR     R6, [R10, #4]          @ Escribir segundo dígito hex
+
+    @ Esperar un poco para que sea visible (opcional)
+    MOV     R8, #0x100000
+delay_loop:
+    SUBS    R8, R8, #1
+    BNE     delay_loop
+
+    @ Continuar polling
+    B       main_loop
 
 
-@--------------------------------------------------------------
-@ mul_software:
-@   Entrada : R0 = multiplicando, R1 = multiplicador
-@   Salida  : R0 = resultado (acumulador)
-@   Regs usados: R2,R3,R5 (clobber)
-@--------------------------------------------------------------
-mul_software:
-    MOV     R2, #0                 @ Acumulador
-    MOV     R3, R1                 @ Copia del multiplicador
-
-mul_loop:
-    CMP     R3, #0
-    BEQ     mul_fin
-    AND     R5, R3, #1             @ bit LSB es 1?
-    BEQ     mul_shift
-    ADD     R2, R2, R0             @ Sumar multiplicando al acumulador
-mul_shift:
-    MOV     R0, R0, LSL #1         @ Desplazar multiplicando
-    MOV     R3, R3, LSR #1         @ Desplazar multiplicador
-    B       mul_loop
-
-mul_fin:
-    MOV     R0, R2
+@ ============================================================
+@ Subrutina: Convertir nibble (0-15) a ASCII hexadecimal
+@ Entrada: R6 = nibble (0-15)
+@ Salida:  R6 = ASCII ('0'-'9' o 'A'-'F')
+@ ============================================================
+nibble_to_ascii:
+    CMP     R6, #10
+    BLT     digit_0_9
+    @ Es A-F (10-15)
+    ADD     R6, R6, #0x37          @ 'A' = 0x41, 0x41 - 10 = 0x37
     MOV     PC, LR
 
-
-@--------------------------------------------------------------
-@ div_software:
-@   Entrada : R0 = dividendo, R1 = divisor
-@   Salida  : R0 = cociente, R1 = residuo
-@   Regs usados: R2,R3 (clobber)
-@--------------------------------------------------------------
-div_software:
-    CMP     R1, #0
-    BEQ     div_div0               @ Divisor cero -> devolver 0/0
-    MOV     R2, #0                 @ Cociente
-    MOV     R3, R0                 @ Residuo parcial
-
-div_loop:
-    CMP     R3, R1
-    BLT     div_fin
-    SUB     R3, R3, R1
-    ADD     R2, R2, #1
-    B       div_loop
-
-div_fin:
-    MOV     R0, R2
-    MOV     R1, R3
-    MOV     PC, LR
-
-div_div0:
-    MOV     R0, #0
-    MOV     R1, #0
-    MOV     PC, LR
-
-
-@--------------------------------------------------------------
-@ bin_to_decimal:
-@   Entrada : R0 = valor, R1 = puntero a buffer (palabras de 32 bits)
-@   Salida  : ASCII en RAM, terminador 0, R0 restaurado
-@   Regs usados: R2-R9 (clobber)
-@--------------------------------------------------------------
-bin_to_decimal:
-    MOV     R8, R0                 @ Respaldar el valor original
-    MOV     R3, R0                 @ Copia de trabajo
-    MOV     R9, R1                 @ Puntero de salida
-    LDR     R2, =powers_of_10      @ Tabla de potencias de 10
-    MOV     R6, #0                 @ Flag de digitos escritos
-
-bin_outer:
-    LDR     R4, [R2]               @ Cargar potencia actual
-    ADD     R2, R2, #4
-    CMP     R4, #0
-    BEQ     bin_no_more_const
-    MOV     R5, #0                 @ Digito actual
-
-bin_count:
-    CMP     R3, R4
-    BLT     bin_emit_check
-    SUB     R3, R3, R4
-    ADD     R5, R5, #1
-    B       bin_count
-
-bin_emit_check:
-    CMP     R5, #0
-    BNE     bin_emit
-    CMP     R6, #0
-    BEQ     bin_outer              @ Omitir ceros a la izquierda
-
-bin_emit:
-    ADD     R7, R5, #'0'
-    STR     R7, [R9]
-    ADD     R9, R9, #4
-    MOV     R6, #1
-    B       bin_outer
-
-bin_no_more_const:
-    CMP     R6, #0
-    BNE     bin_store_terminator
-    MOV     R7, #'0'               @ Valor era 0
-    STR     R7, [R9]
-    ADD     R9, R9, #4
-
-bin_store_terminator:
-    MOV     R7, #0
-    STR     R7, [R9]
-    MOV     R0, R8                 @ Restaurar valor original
+digit_0_9:
+    @ Es 0-9
+    ADD     R6, R6, #0x30          @ '0' = 0x30
     MOV     PC, LR
 
 
     .ltorg
-
-    .align 4
-powers_of_10:
-    .word 1000000000
-    .word 100000000
-    .word 10000000
-    .word 1000000
-    .word 100000
-    .word 10000
-    .word 1000
-    .word 100
-    .word 10
-    .word 1
-    .word 0
-
-vram_test_text:
-    .word 'H'
-    .word 'E'
-    .word 'L'
-    .word 'L'
-    .word 'O'
-    .word ' '
-    .word 'A'
-    .word 'R'
-    .word 'M'
-    .word '!'
-    .word 0
 
 
 
