@@ -77,6 +77,16 @@ main_loop:
     LDR     R3, [R4, #0]           @ R3 = scancode (8 bits en [7:0])
     AND     R3, R3, #0xFF          @ Asegurar solo 8 bits
 
+    @ Ignorar prefijos de break/extend (0xF0, 0xE0)
+    CMP     R3, #0xF0
+    BEQ     main_loop
+    CMP     R3, #0xE0
+    BEQ     main_loop
+
+    @ Restablecer puntero de escritura para sobreescribir siempre el mismo campo
+    ADD     R10, R5, #320          @ Base fila 2
+    ADD     R10, R10, #20          @ Desplazar tras "KEY: "
+
     @ Convertir scancode a ASCII hexadecimal y mostrar
     @ Scancode = 0xAB → mostrar "AB" en pantalla
     
